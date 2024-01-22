@@ -44,7 +44,6 @@ AFRAME.registerComponent('html', {
 			}
 		};
 		this.sizeChanged = this.sizeChanged.bind(this);
-    if( this.data.xrlayer ) this.initXRLayer()
 	},
 	sizeChanged() {
 		this.update();
@@ -73,6 +72,7 @@ AFRAME.registerComponent('html', {
 		this.data.html.addEventListener('input', this.rerender);
 		this.data.html.addEventListener('change', this.rerender);
 		this.cursor = this.data.cursor ? this.data.cursor.object3D : null;
+    if( this.data.xrlayer ) this.initXRLayer()
 	},
 	tick() {
 		if (this.activeRaycaster) {
@@ -113,9 +113,8 @@ AFRAME.registerComponent('html', {
 		const mesh = this.el.getObject3D('html');
 		if (mesh && !mesh.material.map.scheduleUpdate) {
 			mesh.material.map.scheduleUpdate = setTimeout( () => {
-        console.log("rerender!")
         mesh.material.map.update()
-        this.el.emit('rerender',{},true)
+        this.el.emit('render',{},true)
       }, 16 );
 		}
 	},
@@ -133,37 +132,26 @@ AFRAME.registerComponent('html', {
 		this.cursor = null;
 	},
   initXRLayer() {
-    var sceneEl = this.el.sceneEl;
+    let sceneEl  = this.el.sceneEl;
+    let xr       = sceneEl.renderer.xr
+    let mesh     = this.el.getObject3D('html')
+    let retry_ms = 300
+    if( !mesh ) return 
 
-    sceneEl.addEventListener('loaded', () => {
-      if( !this.el.components.layer ){
-        this.el.setAttribute('layer','')
+    if( !this.el.getAttribute('layer') ){
+      this.el.setAttribute('layer',{
+        src:    mesh.material.map.image, 
+        width:  mesh.material.map.image.width/1000,
+        height: mesh.material.map.image.height/1000
+      })
+      mesh.position.z -= 0.05
+    }
 
-        this.el.addEventListener('rerender', () => {
-
-          let mesh = this.el.getObject3D('html')
-          let layer = this.el.components.layer
-          if( !mesh || !layer ) return // too early
-
-          // setup layer if needed
-          if( !layer.layer ){
-            var gl = sceneEl.renderer.getContext();
-            var xrGLFactory = this.xrGLFactory = new XRWebGLBinding(sceneEl.xrSession, gl);
-            layer.layer = xrGLFactory.createQuadLayer({
-              space: layer.referenceSpace,
-              viewPixelHeight: 2048,
-              viewPixelWidth: 2048,
-              height: mesh.material.map.image.height / 1000,
-              width: mesh.material.map.image.width / 1000
-            });
-            layer.initLoadingScreenImages();
-            sceneEl.renderer.xr.addLayer(layer.layer);
-            console.log("setting up layer")
-          }
-          console.log("updating XRLayer")
-          if( mesh ) this.el.components.layer.data.src = mesh.material.map
-        })
-      }
+    this.el.addEventListener('render', () => {
+      let layer = this.el.components.layer
+      if(!layer) return
+      layer.loadQuadImage()
+      layer.needsRedraw = true;
     })
   }
 });

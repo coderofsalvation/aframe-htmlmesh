@@ -20,6 +20,7 @@
 
 			}
 
+			this.addEventListener( 'mouseleave', onEvent );
 			this.addEventListener( 'mousedown', onEvent );
 			this.addEventListener( 'mousemove', onEvent );
 			this.addEventListener( 'mouseup', onEvent );
@@ -34,6 +35,7 @@
 
 				canvases.delete( dom );
 
+				this.removeEventListener( 'mouseleave', onEvent );
 				this.removeEventListener( 'mousedown', onEvent );
 				this.removeEventListener( 'mousemove', onEvent );
 				this.removeEventListener( 'mouseup', onEvent );
@@ -50,6 +52,7 @@
 		constructor( dom ) {
 
 			super( html2canvas( dom ) );
+			this.prevCanvasSize = { width: this.image.width, height: this.image.height };
 
 			this.dom = dom;
 
@@ -73,7 +76,7 @@
 				if ( ! this.scheduleUpdate ) {
 
 					// ideally should use xr.requestAnimationFrame, here setTimeout to avoid passing the renderer
-					this.scheduleUpdate = setTimeout( () => this.update(), 16 );
+					this.scheduleUpdate = setTimeout( () => this.update(), 100 );
 
 				}
 
@@ -103,6 +106,12 @@
 
 			this.scheduleUpdate = null;
 
+			if ( this.image.width !== this.prevCanvasSize.width || this.image.height !== this.prevCanvasSize.height ) {
+				this.prevCanvasSize.width = this.image.width;
+				this.prevCanvasSize.height = this.image.height;
+				this.dom.dispatchEvent(new CustomEvent('size-changed'));
+			}
+
 		}
 
 		dispose() {
@@ -121,6 +130,18 @@
 
 	}
 
+	// Those are all css properties we use in this file:
+	const USED_CSS_PROPERTIES = [
+		'backgroundColor', 'color',
+		'borderRadius',
+		'borderTopWidth', 'borderTopColor', 'borderTopStyle',
+		'borderLeftWidth', 'borderLeftColor', 'borderLeftStyle',
+		'borderBottomWidth', 'borderBottomColor', 'borderBottomStyle',
+		'borderRightWidth', 'borderRightColor', 'borderRightStyle',
+		'accentColor', 'fontFamily', 'fontWeight', 'fontSize', 'textTransform',
+		'paddingLeft', 'paddingTop', 'paddingBottom', 'paddingRight',
+		'overflow'
+	];
 
 	//
 
@@ -190,7 +211,27 @@
 
 		}
 
-		function drawText( style, x, y, string ) {
+		function getLines( ctx, text, maxWidth ) {
+			const words = text.split( " " );
+			const lines = [];
+			let currentLine = words[0];
+
+			for (let i = 1; i < words.length; i++) {
+
+				const word = words[i];
+				const width = ctx.measureText( currentLine + " " + word ).width;
+				if ( width < maxWidth ) {
+					currentLine += " " + word;
+				} else {
+					lines.push( currentLine );
+					currentLine = word;
+				}
+			}
+			lines.push(currentLine);
+			return lines;
+		}
+
+		function drawText( style, x, y, string, maxWidth ) {
 
 			if ( string !== '' ) {
 
@@ -203,7 +244,14 @@
 				context.font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily;
 				context.textBaseline = 'top';
 				context.fillStyle = style.color;
-				context.fillText( string, x, y + parseFloat( style.fontSize ) * 0.1 );
+				if ( !maxWidth ) {
+					context.fillText( string, x, y + parseFloat( style.fontSize ) * 0.1 );
+				} else {
+					const lines = getLines(context, string, maxWidth);
+					lines.forEach(function(line, i) {
+						context.fillText( line, x, y + parseFloat( style.fontSize ) * 0.1 + i * parseFloat( style.fontSize ) * 1.3 );
+					});
+				}
 
 			}
 
@@ -243,6 +291,38 @@
 
 		}
 
+		function getStyleForElement( element ) {
+			const style = window.getComputedStyle( element );
+			if ( element instanceof HTMLButtonElement ) {
+				if ( element.dataset.hoverStyleStored !== 'true' ) {
+					// The first time we render, store hover style in data attributes to make
+					// hover style work in VR because style aren't recomputed when we add the
+					// hover class.
+					if ( element.dataset.hoverStyleStored !== 'pending' ) {
+						// The mutation observer won't trigger rerender if we add the class now because we're currently rendering (scheduleUpdate is defined)
+						// Wait end of render before we modify the DOM.
+						element.dataset.hoverStyleStored = 'pending';
+						queueMicrotask( () => {
+							// Disable any css transition to avoir having a
+							// background color in between states when rerender is triggered.
+							element.style.transitionDuration = '0s';
+							element.classList.add( 'hover' );
+						} );
+					} else if ( element.classList.contains( 'hover' ) ){
+						// rerender was called, now store the updated computed style for hover
+						for ( const prop of USED_CSS_PROPERTIES ) {
+							element.dataset[prop] = style[prop];
+						}
+						element.dataset.hoverStyleStored = 'true';
+						queueMicrotask( () => {
+							element.classList.remove( 'hover' );
+						} );
+					}
+				}
+			}
+			return element.classList.contains( 'hover' ) && element.dataset.hoverStyleStored === 'true' ? element.dataset : style;
+		}
+
 		function drawElement( element, style ) {
 
 			let x = 0, y = 0, width = 0, height = 0;
@@ -259,8 +339,11 @@
 				y = rect.top - offset.top - 0.5;
 				width = rect.width;
 				height = rect.height;
+				// On Quest the font used to draw on canvas is bigger than on
+				// the desktop, compensate for this.
+				const maxWidth = width * 1.01; // 1.005 is good, but use 1.01 to be sure
 
-				drawText( style, x, y, element.nodeValue.trim() );
+				drawText( style, x, y, element.nodeValue.trim(), maxWidth );
 
 			} else if ( element.nodeType === Node.COMMENT_NODE ) {
 
@@ -306,7 +389,7 @@
 				width = rect.width;
 				height = rect.height;
 
-				style = window.getComputedStyle( element );
+				style = getStyleForElement( element );
 
 				// Get the border of the element used for fill and border
 
@@ -498,11 +581,12 @@
 		if ( canvas === undefined ) {
 
 			canvas = document.createElement( 'canvas' );
-			canvas.width = offset.width;
-			canvas.height = offset.height;
 			canvases.set( element, canvas );
 
 		}
+
+		canvas.width = offset.width;
+		canvas.height = offset.height;
 
 		const context = canvas.getContext( '2d'/*, { alpha: false }*/ );
 
@@ -546,6 +630,16 @@
 
 					element.dispatchEvent( new MouseEvent( event, mouseEventInit ) );
 
+					if ( element instanceof HTMLButtonElement ) {
+						switch ( event ) {
+							case 'mousemove':
+								if ( !element.classList.contains( 'hover' ) ) {
+									element.classList.add('hover');
+								}
+								break;
+						}
+					}
+
 					if ( element instanceof HTMLInputElement && element.type === 'range' && ( event === 'mousedown' || event === 'click' ) ) {
 
 						const [ min, max ] = [ 'min', 'max' ].map( property => parseFloat( element[ property ] ) );
@@ -558,6 +652,10 @@
 
 					}
 
+				} else {
+					if ( element instanceof HTMLButtonElement ) {
+						if ( element.classList.contains( 'hover' ) ) element.classList.remove( 'hover' );
+					}
 				}
 
 				for ( let i = 0; i < element.childNodes.length; i ++ ) {
@@ -582,12 +680,17 @@
 		},
 		cursor: {
 			type: 'selector',
-		}
+		},
+	  xrlayer:{
+	    type:'bool',
+	    default: true
+	  }
 	};
 
 	{
 		schemaHTML.html.description = `HTML element to use.`;
 		schemaHTML.cursor.description = `Visual indicator for where the user is currently pointing`;
+		schemaHTML.xrlayer.description = `Render via XR Layer for better performance and readability`;
 	}
 
 	const _pointer = new THREE.Vector2();
@@ -608,6 +711,10 @@
 					intersection: null
 				}
 			};
+			this.sizeChanged = this.sizeChanged.bind(this);
+		},
+		sizeChanged() {
+			this.update();
 		},
 		play() {
 			this.el.addEventListener('click', this.onClick);
@@ -615,6 +722,7 @@
 			this.el.addEventListener('mouseenter', this.onMouseEnter);
 			this.el.addEventListener('mouseup', this.onMouseUp);
 			this.el.addEventListener('mousedown', this.onMouseDown);
+			this.data.html.addEventListener('size-changed', this.sizeChanged);
 		},
 		pause() {
 			this.el.removeEventListener('click', this.onClick);
@@ -622,6 +730,7 @@
 			this.el.removeEventListener('mouseenter', this.onMouseEnter);
 			this.el.removeEventListener('mouseup', this.onMouseUp);
 			this.el.removeEventListener('mousedown', this.onMouseDown);
+			this.data.html.removeEventListener('size-changed', this.sizeChanged);
 		},
 		update() {
 			this.remove();
@@ -631,6 +740,7 @@
 			this.data.html.addEventListener('input', this.rerender);
 			this.data.html.addEventListener('change', this.rerender);
 			this.cursor = this.data.cursor ? this.data.cursor.object3D : null;
+	    if( this.data.xrlayer ) this.initXRLayer();
 		},
 		tick() {
 			if (this.activeRaycaster) {
@@ -648,6 +758,10 @@
 			}
 			if (type === 'mouseleave' && this.activeRaycaster === raycaster) {
 				this.activeRaycaster = null;
+				_event.type = type;
+				_event.data.set( -1, -1 );
+				const mesh = this.el.getObject3D('html');
+				mesh.dispatchEvent( _event );
 			}
 			if (this.cursor) this.cursor.visible = false;
 			if (intersection) {
@@ -666,7 +780,10 @@
 		rerender() {
 			const mesh = this.el.getObject3D('html');
 			if (mesh && !mesh.material.map.scheduleUpdate) {
-				mesh.material.map.scheduleUpdate = setTimeout( () => mesh.material.map.update(), 16 );
+				mesh.material.map.scheduleUpdate = setTimeout( () => {
+	        mesh.material.map.update();
+	        this.el.emit('render',{},true);
+	      }, 16 );
 			}
 		},
 		remove() {
@@ -682,6 +799,28 @@
 			this.mouseMoveDetail.detail.intersection = null;
 			this.cursor = null;
 		},
+	  initXRLayer() {
+	    let sceneEl  = this.el.sceneEl;
+	    sceneEl.renderer.xr;
+	    let mesh     = this.el.getObject3D('html');
+	    if( !mesh ) return 
+
+	    if( !this.el.getAttribute('layer') ){
+	      this.el.setAttribute('layer',{
+	        src:    mesh.material.map.image, 
+	        width:  mesh.material.map.image.width/1000,
+	        height: mesh.material.map.image.height/1000
+	      });
+	      mesh.position.z -= 0.05;
+	    }
+
+	    this.el.addEventListener('render', () => {
+	      let layer = this.el.components.layer;
+	      if(!layer) return
+	      layer.loadQuadImage();
+	      layer.needsRedraw = true;
+	    });
+	  }
 	});
 
 })(THREE);

@@ -11,13 +11,18 @@ const schemaHTML = {
 	},
 	cursor: {
 		type: 'selector',
-	}
+	},
+  xrlayer:{
+    type:'bool',
+    default: true
+  }
 };
 
 documentation:
 {
 	schemaHTML.html.description = `HTML element to use.`;
 	schemaHTML.cursor.description = `Visual indicator for where the user is currently pointing`;
+	schemaHTML.xrlayer.description = `Render via XR Layer for better performance and readability`;
 }
 
 const _pointer = new THREE.Vector2();
@@ -39,6 +44,7 @@ AFRAME.registerComponent('html', {
 			}
 		};
 		this.sizeChanged = this.sizeChanged.bind(this);
+    if( this.data.xrlayer ) this.initXRLayer()
 	},
 	sizeChanged() {
 		this.update();
@@ -106,7 +112,11 @@ AFRAME.registerComponent('html', {
 	rerender() {
 		const mesh = this.el.getObject3D('html');
 		if (mesh && !mesh.material.map.scheduleUpdate) {
-			mesh.material.map.scheduleUpdate = setTimeout( () => mesh.material.map.update(), 16 );
+			mesh.material.map.scheduleUpdate = setTimeout( () => {
+        console.log("rerender!")
+        mesh.material.map.update()
+        this.el.emit('rerender',{},true)
+      }, 16 );
 		}
 	},
 	remove() {
@@ -122,4 +132,38 @@ AFRAME.registerComponent('html', {
 		this.mouseMoveDetail.detail.intersection = null;
 		this.cursor = null;
 	},
+  initXRLayer() {
+    var sceneEl = this.el.sceneEl;
+
+    sceneEl.addEventListener('loaded', () => {
+      if( !this.el.components.layer ){
+        this.el.setAttribute('layer','')
+
+        this.el.addEventListener('rerender', () => {
+
+          let mesh = this.el.getObject3D('html')
+          let layer = this.el.components.layer
+          if( !mesh || !layer ) return // too early
+
+          // setup layer if needed
+          if( !layer.layer ){
+            var gl = sceneEl.renderer.getContext();
+            var xrGLFactory = this.xrGLFactory = new XRWebGLBinding(sceneEl.xrSession, gl);
+            layer.layer = xrGLFactory.createQuadLayer({
+              space: layer.referenceSpace,
+              viewPixelHeight: 2048,
+              viewPixelWidth: 2048,
+              height: mesh.material.map.image.height / 1000,
+              width: mesh.material.map.image.width / 1000
+            });
+            layer.initLoadingScreenImages();
+            sceneEl.renderer.xr.addLayer(layer.layer);
+            console.log("setting up layer")
+          }
+          console.log("updating XRLayer")
+          if( mesh ) this.el.components.layer.data.src = mesh.material.map
+        })
+      }
+    })
+  }
 });

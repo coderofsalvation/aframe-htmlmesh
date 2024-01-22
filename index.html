@@ -26,6 +26,7 @@
 			position:absolute;
 			inset:auto 0 0 0;
 		}
+    .vc-switch{ margin-right:161px; }
     </style>
 	<script src="aframe-master.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/handy-work@3.1.9/build/handy-controls.min.js"></script>
@@ -101,6 +102,7 @@
 		</a-entity>
 		<a-torus-knot position="0 1.5 -1" radius="0.1" radius-tubular="0.02" material="shader:phong;reflectivity:0.3;" id="knot"></a-torus-knot>
 		<a-entity html="cursor:#cursor;html:#my-interface" shadow position="0.25 1.5 -0.5"></a-entity>
+		<a-entity html="cursor:#cursor;html:#my-interface;xrlayer:false" shadow position="-0.25 1.5 -0.5"></a-entity>
 	</a-scene>
 
 	<div id="dom-overlay">
@@ -142,7 +144,13 @@
 			if (name === 'wireframe') knot.setAttribute('material', 'wireframe', detail.checked);
 			if (name === 'shiny') knot.setAttribute('material', 'reflectivity', detail.checked ? '0.3' : 0);
 		}
+
 	</script>
+  <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+  <script>
+    // VConsole will be exported to `window.VConsole` by default.
+    var vConsole = new window.VConsole();
+  </script>
 </body>
 
 </html>

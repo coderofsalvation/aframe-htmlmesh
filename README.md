@@ -10,9 +10,10 @@
 <!--DOCS-->
 ### html component
 
-| Property | Type     | Description                                               | Default |
-| :------- | :------- | :-------------------------------------------------------- | :------ |
-| html     | selector | HTML element to use.                                      |         |
-| cursor   | selector | Visual indicator for where the user is currently pointing |         |
+| Property | Type     | Description                                                | Default |
+| :------- | :------- | :--------------------------------------------------------- | :------ |
+| html     | selector | HTML element to use.                                       |         |
+| cursor   | selector | Visual indicator for where the user is currently pointing  |         |
+| xrlayer  | bool     | Render via XR Layer for better performance and readability | true    |
 
 <!--DOCS_END-->
